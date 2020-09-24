@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script src="/static/js/jquery-3.5.1.min.js"></script>
+    <script src="/static/js/json2.js"></script>
+    <script src="/static/js/uuid.js"></script>
+    <script src="/static/js/functions.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Web site created using create-react-app">
+    <script type="text/javascript">
+        window.onload = function () {
+            // 测试图片
+            // $.ShowSrcImage("file:///D:/opensource/chat_robot/chat_robot/client/static/pic/logo192.png", "源图");
+
+            // for (i = 0; i < 10; i++) {
+            //     $.ShowDestImage("file:///D:/opensource/chat_robot/chat_robot/client/static/pic/logo192.png", "源图");
+            // };
+
+
+            // 绑定导入本地文件事件
+            $("#import").click(function () {
+                $.Import();
+            });
+
+            // 绑定BASE64编码导入事件
+            $("#import_base64").click(function () {
+                $.ImportBase64();
+            });
+
+            // 绑定URL导入事件
+            $("#upload_url").click(function () {
+                $.ImportUrl;
+            });
+
+            // 绑定搜索图片事件
+            $("#search").click(function () {
+                $.Search();
+            });
+
+            $("#search_base64").click(function () {
+                $.SearchBase64();
+            });
+
+            $("#search_url").click(function () {
+                $.SearchUrl();
+            });
+
+            // 绑定图片库处理
+            $("#get_images").click(function () {
+                $.GetImages();
+            });
+
+            // 删除指定图片
+            $("#reomve_image").click(function () {
+                $.RemoveImage();
+            });
+
+        };
+    </script>
+    <style>
+        #root,
+        body,
+        html {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        p {
+            margin: 0
+        }
+
+        .DivContainer {
+            padding: 5px;
+            margin: 5px;
+        }
+
+        .InputText {
+            margin: 2px;
+            margin-bottom: 15px;
+            width: 400px;
+        }
+
+        .InputTextShort {
+            margin: 2px;
+            margin-bottom: 15px;
+            width: 100px;
+        }
+
+        .TitleText {
+            margin: 2px;
+        }
+
+        .ImagePanel {
+            text-align: left;
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        .ImgContainer {
+            width: 200px;
+            margin: 0 5px 5px 0;
+            height: auto;
+            text-align: center;
+        }
+
+        .ImgContainer img {
+            height: auto;
+            width: 200px;
+            display: inline-block;
+        }
+
+        .ImgContainer a {
+            font-family: "微软雅黑", "黑体", "宋体";
+            font-size: 12px;
+            height: 12px;
+        }
+    </style>
+    <title>Search By Image Demo</title>
+
+
+</head>
+
+<body><noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="op" class="DivContainer">
+        <a>管道标识</a>
+        <select id="pipeline">
+            <option value="DemoSearch" selected>DemoSearch</option>
+            <option value="JadeSearch">JadeSearch</option>
+        </select>
+        <a>指定分类标识</a><input type="text" id="collection" value="" class="InputTextShort" />
+        <p></p>
+        <a>上传图片物理目录</a><input type="text" id="image_path" width="400px"
+            value="D:/opensource/search_by_image/client/imported_pic/glass" class="InputText" />
+        <p></p>
+        <a>图片文件</a>
+        <input type="file" id="file" name="file" class="InputText" />
+        <input type="button" id="import" value="二进制导入" />
+        <input type="button" id="import_base64" value="BASE64导入" />
+        <input type="button" id="search" value="二进制图片搜索" />
+        <input type="button" id="search_base64" value="BASE64图片搜索" />
+        <p></p>
+        <a>图片URL</a>
+        <input type="text" id="image_url" value="" class="InputText" />
+        <input type="button" id="import_url" value="URL图片导入" />
+        <input type="button" id="search_url" value="URL图片搜索" />
+        <p></p>
+        <input type="button" id="get_images" value="查询已导入图片" />
+        <p></p>
+        <a>要删除的图片id</a><input type="text" id="reomve_id" value="" class="InputTextShort" />
+        <input type="button" id="reomve_image" value="删除已导入图片" />
+    </div>
+    <p>
+        <HR align="center" width="100%" color="#987cb9" SIZE="1">
+    </p>
+    <div id="src" class="DivContainer">
+        <a class="TitleText">源图片</a>
+        <p></p>
+        <div id="src_img_container" class="ImagePanel"></div>
+    </div>
+    <p>
+        <HR align="center" width="100%" color="#987cb9" SIZE="1">
+    </p>
+    <div id="images" class="DivContainer">
+        <a class="TitleText">相似图片</a>
+        <p></p>
+        <div id="dest_img_container" class="ImagePanel"></div>
+    </div>
+
+</body>
+
+</html>

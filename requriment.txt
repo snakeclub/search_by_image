@@ -1,0 +1,11 @@
+pymilvus==0.2.13
+flask-cors
+flask
+flask_restful
+Werkzeug
+HiveNetLib>=0.8.3
+numpy
+pandas
+Pillow
+pymongo
+tensorflow==1.15.0

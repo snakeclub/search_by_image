@@ -1,0 +1,26 @@
+{
+  "name": "search_by_image",
+  "version": "0.0.1",
+  "description": "Search images by image",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "release": "standard-version"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snakeclub/search_by_image.git"
+  },
+  "keywords": [],
+  "author": "黎慧剑",
+  "license": "MPL",
+  "bugs": {
+    "url": "https://github.com/snakeclub/search_by_image/issues"
+  },
+  "homepage": "https://github.com/snakeclub/search_by_image#readme",
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
+  }
+}

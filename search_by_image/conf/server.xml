@@ -1,0 +1,172 @@
+<server>
+    <!--
+        search_by_image配置
+        enable_client : bool，是否启动客户端
+        static_path : 静态文件路径
+        debug : 是否是debug模式
+        max_upload_size : float, 上传文件的最大大小，单位为MB
+        flask : flask的运行参数设置
+            host : 绑定的主机地址，可以为127.0.0.1或不传
+            port : int, 监听端口
+            threaded : bool, 是否启动多线程
+            processes : int, 进程数
+        mongodb : MongoDB数据库配置，可支持的参数与pymongo的MongoClient函数一致
+            host : 服务器地址
+            port : int, 服务器端口
+            username : 登陆用户名
+            password : 登陆密码
+            authSource : 用户验证数据库（创建数据库用户指定的数据库）
+            authMechanism : 验证模式，与mongodb的版本有关系，默认：'SCRAM-SHA-256'
+                参考：https://api.mongodb.com/python/current/examples/authentication.html
+                支持值包括：SCRAM-SHA-1 、 MONGODB-CR
+            maxPoolSize : int, 连接池最大连接数
+        search_config: 搜索引擎参数
+            nprobe : int, 盘查的单元数量(cell number of probe)
+            topk : int, 获取最近匹配的数量
+            default_collection : 当获取到的集合为空时，所使用的默认集合
+            app_name : 搜索应用名
+            collections : 集合名清单，应与pipeline会产生的集合类型保持一致，使用逗号分隔
+            match_score : 匹配度(0.0-1.0之间的小数)
+        milvus : Milvus服务配置
+            host : Milvus服务器地址
+            port : int, Milvus服务器端口
+            pool : 连接池选择，可选QueuePool、SingletonThread、Singleton，默认SingletonThread
+            # 以下为创建查询索引相关参数
+            index_file_size : int, 索引文件大小
+            dimension : int, 维度, 必须与特征向量的维度一致，如inception_v4的特征向量为1536，RGB直方图为768，如果使用HSVClusterHistogramVetor则为3个分割值的乘积
+            metric_type : 度量类型, 可取值如下:
+                L2 - 欧氏距离计算的是两点之间最短的直线距离
+                IP - 内积更适合计算向量的方向而不是大小
+                HAMMING - 汉明距离计算二进制字符串之间的距离
+                JACCARD - 杰卡德相似系数计算数据集之间的相似度，计算方式为：数据集交集的个数和并集个数的比值
+                TANIMOTO - 谷本距离
+                SUPERSTRUCTURE - 超结构，超结构主要用来计算某化学结构与其超结构的相似度
+                SUBSTRUCTURE - 子结构，子结构主要用来计算某化学结构与其子结构的相似度
+        logger : 日志配置，具体配置参考HiveNetLib.simple_log
+        pipeline : 图片处理的管道配置
+            plugins_path : 插件目录, 可以设置多个插件目录，通过逗号','分隔
+            processer_para : 处理器插件参数，按插件名配置，将加载至全局变量 "PIPELINE_PROCESSER_PARA" 中
+            router_para : 路由器插件参数，按插件名配置，将加载至全局变量 "PIPELINE_ROUTER_PARA" 中
+            pipeline_config : 可用管道配置，配置名为可用管道标识，配置值为管道配置JSON串
+
+    -->
+    <static_path>../client</static_path>
+    <enable_client type="bool">true</enable_client>
+    <debug type="bool">true</debug>
+    <max_upload_size type="float">16</max_upload_size>
+    <flask>
+        <port type="int">8002</port>
+        <threaded type="bool">true</threaded>
+        <processes type="int">1</processes>
+    </flask>
+    <mongodb>
+        <host>10.16.85.63</host>
+        <port type="int">27017</port>
+        <username>jade</username>
+        <password>123456</password>
+        <authSource>jade_search_db</authSource>
+        <authMechanism>SCRAM-SHA-256</authMechanism>
+        <maxPoolSize type="int">100</maxPoolSize>
+    </mongodb>
+    <search_config>
+        <nprobe type="int">64</nprobe>
+        <topk type="int">10</topk>
+        <default_collection>other</default_collection>
+        <app_name>demo_search</app_name>
+        <collections>other</collections>
+        <match_score type="float">0.0</match_score>
+    </search_config>
+    <milvus>
+        <host>10.16.85.63</host>
+        <port type="int">19530</port>
+        <pool>SingletonThread</pool>
+        <index_file_size type="int">1024</index_file_size>
+        <dimension type="int">1536</dimension>
+        <metric_type>L2</metric_type>
+    </milvus>
+    <logger>
+        <conf_file_name></conf_file_name>
+        <logger_name>ConsoleAndFile</logger_name>
+        <logfile_path>./logs/server.log</logfile_path>
+        <config_type>JSON_STR</config_type>
+        <json_str>{
+                    "version": 1,
+                    "disable_existing_loggers": false,
+                    "formatters": {
+                        "simpleFormatter": {
+                            "format": "[%(asctime)s.%(millisecond)s][%(levelname)s][PID:%(process)d][FILE:%(filename)s][FUN:%(funcName)s]%(message)s",
+                            "datefmt": "%Y_%m_%d %H:%M:%S"
+                        }
+                    },
+
+                    "handlers": {
+                        "ConsoleHandler": {
+                            "class": "logging.StreamHandler",
+                            "level": "DEBUG",
+                            "formatter": "simpleFormatter",
+                            "stream": "ext://sys.stdout"
+                        },
+                        "FileHandler": {
+                            "class": "logging.handlers.RotatingFileHandler",
+                            "level": "DEBUG",
+                            "formatter": "simpleFormatter",
+                            "filename": "./logs/server.log",
+                            "maxBytes": 10485760,
+                            "backupCount": 1000,
+                            "encoding": "utf8"
+                        }
+                    },
+
+                    "loggers": {
+                        "Console": {
+                            "level": "DEBUG",
+                            "handlers": ["ConsoleHandler"]
+                        },
+                        "File": {
+                            "level": "DEBUG",
+                            "handlers": ["FileHandler"],
+                            "propagate": "no"
+                        },
+                        "ConsoleAndFile": {
+                            "level": "DEBUG",
+                            "handlers": ["ConsoleHandler", "FileHandler"],
+                            "propagate": "no"
+                        }
+                    },
+
+                    "root": {
+                        "level": "DEBUG",
+                        "handlers": []
+                    }
+                }</json_str>
+        <auto_create_conf>true</auto_create_conf>
+        <is_create_logfile_by_day>true</is_create_logfile_by_day>
+        <call_fun_level>0</call_fun_level>
+    </logger>
+    <pipeline>
+        <plugins_path>../pipeline_plugins, ../pipeline_plugins_demo</plugins_path>
+        <processer_para>
+            <InceptionV4Vertor>
+                <frozen_graph>../test_data/tf_models/inception_v4_pre/inception_v4_freeze.pb</frozen_graph>
+                <labelmap>../test_data/tf_models/inception_v4_pre/labels.txt</labelmap>
+                <encoding>utf-8</encoding>
+                <image_size type="int">299</image_size>
+                <min_score type="float">0.1</min_score>
+            </InceptionV4Vertor>
+        </processer_para>
+        <router_para>
+        </router_para>
+        <pipeline_config>
+            <DemoSearch>{
+                "1": {
+                    "name": "input",
+                    "processor": "InceptionV4Vertor",
+                    "context": {},
+                    "router": "",
+                    "exception_router": ""
+                }
+            }
+            </DemoSearch>
+        </pipeline_config>
+    </pipeline>
+</server>
