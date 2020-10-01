@@ -95,13 +95,13 @@ def test_JadeTypeDetect():
             _input = {
                 'type': '',
                 'sub_type': '',
-                'image': _file_bytes,
+                'image': Image.open(_file_bytes),
                 'score': 0.0
             }
             _output = _processer_class.execute(_input, {}, _pipeline)
 
             # 输出图片和对应文字
-            _image = Image.open(BytesIO(_output['image']))
+            _image = _output['image']
             _print_str = 'type: %s\nsub_type: %s\nscore: %s' % (
                 _output['type'], _output['sub_type'], str(_output['score']))
             _draw = ImageDraw.Draw(_image)  # PIL图片上打印汉字
@@ -132,13 +132,13 @@ def test_PendantTypeDetect():
             _input = {
                 'type': '',
                 'sub_type': '',
-                'image': _file_bytes,
+                'image': Image.open(_file_bytes),
                 'score': 0.0
             }
             _output = _processer_class.execute(_input, {}, _pipeline)
 
             # 输出图片和对应文字
-            _image = Image.open(BytesIO(_output['image']))
+            _image = _output['image']
             _print_str = 'type: %s\nsub_type: %s\nscore: %s' % (
                 _output['type'], _output['sub_type'], str(_output['score']))
             _draw = ImageDraw.Draw(_image)  # PIL图片上打印汉字
@@ -169,7 +169,7 @@ def test_HistogramVetor():
             _input = {
                 'type': '',
                 'sub_type': '',
-                'image': _file_bytes,
+                'image': Image.open(_file_bytes),
                 'score': 0.0
             }
             _output = _processer_class.execute(_input, {}, _pipeline)
@@ -459,7 +459,7 @@ if __name__ == '__main__':
     # test_HistogramVetor()
 
     # 测试管道
-    # test_jade_pipeline()
+    test_jade_pipeline()
 
     # 测试颜色算法
     # test_hsv_color()
@@ -468,4 +468,4 @@ if __name__ == '__main__':
     # test_histogram()
 
     # 比较图片
-    test_jade_pipeline_pic_compare()
+    # test_jade_pipeline_pic_compare()

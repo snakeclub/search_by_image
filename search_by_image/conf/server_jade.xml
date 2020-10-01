@@ -157,7 +157,14 @@
                 <labelmap>../test_data/tf_models/pendant_type/labelmap.pbtxt</labelmap>
                 <encoding>utf-8</encoding>
                 <min_score type="float">0.8</min_score>
+                <cut_center_field type="float">0.55</cut_center_field>
             </PendantTypeDetect>
+            <BangleMaskDetect>
+                <frozen_graph>../test_data/tf_models/bangle_mask/frozen_inference_graph.pb</frozen_graph>
+                <labelmap>../test_data/tf_models/bangle_mask/labelmap.pbtxt</labelmap>
+                <encoding>utf-8</encoding>
+                <min_score type="float">0.8</min_score>
+            </BangleMaskDetect>
             <HistogramVetor>
                 <image_size type="int">299</image_size>
             </HistogramVetor>
@@ -191,20 +198,28 @@
                     "exception_router": ""
                 },
                 "3": {
+                    "name": "bangle_mask_detect",
+                    "processor": "BangleMaskDetect",
+                    "context": {},
+                    "router": "GoToNode",
+                    "router_para": {"goto_node_name": "generate_vertor"},
+                    "exception_router": ""
+                },
+                "4": {
                     "name": "pendant_detect",
                     "processor": "PendantTypeDetect",
                     "context": {},
                     "router": "",
                     "exception_router": ""
                 },
-                "4": {
+                "5": {
                     "name": "generate_vertor",
                     "processor": "HSVClusterHistogramVetor",
                     "context": {},
                     "router": "",
                     "exception_router": ""
                 },
-                "5": {
+                "6": {
                     "name": "output",
                     "processor": "SearchImageOutputAdpter",
                     "context": {},

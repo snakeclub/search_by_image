@@ -17,6 +17,7 @@ from __future__ import division
 import os
 import sys
 import math
+import copy
 from io import BytesIO
 import tensorflow as tf
 from PIL import Image
@@ -40,6 +41,9 @@ PR_JADE_TYPE_DETECT_GRAPH = 'PR_JADE_TYPE_DETECT_GRAPH'
 
 # 识别挂件类型的物体识别模型全局变量名
 PR_PENDANT_TYPE_DETECT_GRAPH = 'PR_PENDANT_TYPE_DETECT_GRAPH'
+
+# 识别手镯掩码的物体识别模型全局变量
+PR_BANGLE_MASK_DETECT_GRAPH = 'PR_BANGLE_MASK_DETECT_GRAPH'
 
 
 class Tools(object):
@@ -110,6 +114,54 @@ class Tools(object):
         return np.array(image.getdata()).reshape((im_height, im_width, 3)).astype(np.uint8)
 
     @classmethod
+    def reframe_box_masks_to_image_masks(cls, box_masks, boxes, image_height,
+                                         image_width):
+        """Transforms the box masks back to full image masks.
+
+        Embeds masks in bounding boxes of larger masks whose shapes correspond to
+        image shape.
+
+        Args:
+            box_masks: A tf.float32 tensor of size [num_masks, mask_height, mask_width].
+            boxes: A tf.float32 tensor of size [num_masks, 4] containing the box
+                corners. Row i contains [ymin, xmin, ymax, xmax] of the box
+                corresponding to mask i. Note that the box corners are in
+                normalized coordinates.
+            image_height: Image height. The output mask will have the same height as
+                        the image height.
+            image_width: Image width. The output mask will have the same width as the
+                        image width.
+
+        Returns:
+            A tf.float32 tensor of size [num_masks, image_height, image_width].
+        """
+        def reframe_box_masks_to_image_masks_default():
+            """The default function when there are more than 0 box masks."""
+            def transform_boxes_relative_to_boxes(boxes, reference_boxes):
+                boxes = tf.reshape(boxes, [-1, 2, 2])
+                min_corner = tf.expand_dims(reference_boxes[:, 0:2], 1)
+                max_corner = tf.expand_dims(reference_boxes[:, 2:4], 1)
+                transformed_boxes = (boxes - min_corner) / (max_corner - min_corner)
+                return tf.reshape(transformed_boxes, [-1, 4])
+
+            box_masks_expanded = tf.expand_dims(box_masks, axis=3)
+            num_boxes = tf.shape(box_masks_expanded)[0]
+            unit_boxes = tf.concat(
+                [tf.zeros([num_boxes, 2]), tf.ones([num_boxes, 2])], axis=1)
+            reverse_boxes = transform_boxes_relative_to_boxes(unit_boxes, boxes)
+            return tf.image.crop_and_resize(
+                image=box_masks_expanded,
+                boxes=reverse_boxes,
+                box_ind=tf.range(num_boxes),
+                crop_size=[image_height, image_width],
+                extrapolation_value=0.0)
+        image_masks = tf.cond(
+            tf.shape(box_masks)[0] > 0,
+            reframe_box_masks_to_image_masks_default,
+            lambda: tf.zeros([0, image_height, image_width, 1], dtype=tf.float32))
+        return tf.squeeze(image_masks, axis=3)
+
+    @classmethod
     def detect_processer_initialize(cls, graph_var_name: str, processer_name: str):
         """
         物体识别处理器的公共初始化函数
@@ -162,19 +214,19 @@ class Tools(object):
         _graph['num_detections'] = _detection_graph.get_tensor_by_name('num_detections:0')
 
     @classmethod
-    def detect_processer_execute(cls, graph_var_name: str, processer_name: str, input,
+    def detect_processer_execute(cls, graph_var_name: str, processer_name: str, input_data,
                                  context: dict, pipeline_obj):
         """
         物体识别处理器的公共执行函数
 
         @param {str} graph_var_name - 对象识别冻结图全局变量名
         @param {str} processer_name - 处理器名
-        @param {object} input - 处理器输入数据值
+        @param {object} input_data - 处理器输入数据值
             输入图片信息字典
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
             }
         @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
@@ -185,18 +237,19 @@ class Tools(object):
                 {
                     'type': # {str} 识别到的对象分类, ''代表没有找到分类
                     'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                    'image': # {bytes} 通过截图处理后的图片bytes对象
+                    'image': # {PIL.Image.Image} 通过截图处理后的图片对象
                     'score': # {float} 匹配分数
                 }
         """
-        # 如果是翡翠类型判断但又送了挂件类型进来，直接不处理
-        if input['type'] == 'pendant' and processer_name == 'JadeTypeDetect':
-            return input
+        # 如果是翡翠类型判断但又送了挂件类型进来，直接不处理，按流程走挂件的处理
+        if input_data['type'] == 'pendant' and processer_name == 'JadeTypeDetect':
+            return input_data
 
+        _config = RunTool.get_global_var('PIPELINE_PROCESSER_PARA')[processer_name]
         _graph = RunTool.get_global_var(graph_var_name)
 
         # 准备图片
-        _image = Image.open(BytesIO(input['image']))
+        _image = input_data['image']
         _image_np = Tools.load_image_into_numpy_array(_image)
         _image_np_expanded = np.expand_dims(_image_np, axis=0)
 
@@ -217,46 +270,85 @@ class Tools(object):
         if processer_name == 'JadeTypeDetect':
             # 判断翡翠类型
             for _score in _np_scores:
-                # 遍历找到最佳匹配
-                if _score >= _graph['min_score'] and int(_np_classes[_index]) != _graph['other_id']:
-                    if _score > _match_score:
-                        if input['type'] != '':
+                # 找到第一个匹配上的对象，这是最优匹配
+                if _score >= _graph['min_score']:
+                    if _score > _match_score and int(_np_classes[_index]) != _graph['other_id']:
+                        if input_data['type'] != '':
                             # 指定分类的情况
                             _type = _graph['labelmap'][int(_np_classes[_index])]
-                            if input['type'] == _type or (input['type'] == 'bangle' and _type.startswith('bangle_')):
+                            if input_data['type'] == _type or (input_data['type'] == 'bangle' and _type.startswith('bangle_')):
                                 # 匹配上
                                 _match_index = _index
                                 _match_score = _score
+                                break
                         else:
                             # 未指定分类
                             _match_index = _index
                             _match_score = _score
+                            break
+                else:
+                    # 分数达不到，后续分数会更低，因此直接退出
+                    break
 
                 # 下一个
                 _index += 1
-        else:
-            # 判断挂件类型
+        elif input_data['type'] in ['earrings', 'chain']:
+            # 耳环及项链的情况，在二次挂件识别中组合识别到的挂件图片
+            _corp_images = []  # 识别到的挂件图片清单
             for _score in _np_scores:
                 if _score >= _graph['min_score']:
-                    if _score > _match_score:
+                    if _index == 0:
                         _match_score = _score
-                        _match_index = _index
+                        _match_index = 0
+                    # 截图
+                    _ymin = int(_np_boxes[_index][0] * _image.size[1])
+                    _xmin = int(_np_boxes[_index][1] * _image.size[0])
+                    _ymax = int(_np_boxes[_index][2] * _image.size[1])
+                    _xmax = int(_np_boxes[_index][3] * _image.size[0])
+                    _corp_images.append(
+                        cls.get_image_center(
+                            _image.crop((_xmin, _ymin, _xmax, _ymax)),
+                            center_field=_config.get('cut_center_field', 0.7)
+                        ).resize((100, 100))
+                    )
+                else:
+                    break
 
-                    _index += 1
+                # 下一个
+                _index += 1
+
+            # 将多个识别到的翡翠拼成一张图片
+            if _match_index == 0:
+                _obj_image = Image.new('RGB', (100 * len(_corp_images), 100), (0, 0, 0))  # 纯黑色图片
+                for _i in range(len(_corp_images)):
+                    # 粘贴上去
+                    _obj_image.paste(
+                        _corp_images[_i],
+                        (100 * _i, 0, 100 * (_i + 1), 100)
+                    )
+        else:
+            # 判断挂件类型
+            if len(_np_scores) > 0 and _np_scores[0] >= _graph['min_score']:
+                _match_score = _np_scores[0]
+                _match_index = 0
 
         if _match_index == -1:
             # 没有找到最佳匹配的图片, 直接返回原图片的输入信息即可
-            return input
+            return input_data
 
-        # 进行截图处理
-        _ymin = int(_np_boxes[_match_index][0] * _image.size[1])
-        _xmin = int(_np_boxes[_match_index][1] * _image.size[0])
-        _ymax = int(_np_boxes[_match_index][2] * _image.size[1])
-        _xmax = int(_np_boxes[_match_index][3] * _image.size[0])
-        _obj_image = _image.crop((_xmin, _ymin, _xmax, _ymax))
+        if not (processer_name == 'PendantTypeDetect' and input_data['type'] in ['earrings', 'chain']):
+            # 非耳环和项链的二次挂件识别，进行截图处理
+            _ymin = int(_np_boxes[_match_index][0] * _image.size[1])
+            _xmin = int(_np_boxes[_match_index][1] * _image.size[0])
+            _ymax = int(_np_boxes[_match_index][2] * _image.size[1])
+            _xmax = int(_np_boxes[_match_index][3] * _image.size[0])
+            _obj_image = _image.crop((_xmin, _ymin, _xmax, _ymax))
 
-        _img_bytesio = BytesIO()
-        _obj_image.save(_img_bytesio, format='JPEG')
+            if processer_name == 'PendantTypeDetect':
+                # 挂件，获取中间部分，以去掉非翡翠部分背景
+                _obj_image = cls.get_image_center(
+                    _obj_image, center_field=_config.get('cut_center_field', 0.7)
+                )
 
         # 处理类型
         _type = _graph['labelmap'][int(_np_classes[_match_index])]
@@ -264,7 +356,7 @@ class Tools(object):
             # 手镯的情况
             _sub_type = _type
             _type = 'bangle'
-        elif input['type'] == '':
+        elif input_data['type'] == '':
             if processer_name == 'PendantTypeDetect':
                 # 挂件
                 _sub_type = _type
@@ -273,15 +365,160 @@ class Tools(object):
                 _sub_type = ''
         else:
             _sub_type = _type
-            _type = input['type']
+            _type = input_data['type']
 
         # 如果执行两次判断，则第二次为子分类
         return {
             'type': _type,
             'sub_type': _sub_type,
-            'image': _img_bytesio.getvalue(),
+            'image': _obj_image,
             'score': float(_np_scores[_match_index])
         }
+
+    @classmethod
+    def mask_processer_initialize(cls, graph_var_name: str, processer_name: str):
+        """
+        对象识别掩码处理器的公共初始化函数
+
+        @param {str} graph_var_name - 对象识别冻结图全局变量名
+        @param {str} processer_name - 处理器名
+        """
+        _graph = RunTool.get_global_var(graph_var_name)
+        if _graph is None:
+            _graph = dict()
+            RunTool.set_global_var(graph_var_name, _graph)
+        else:
+            # 模型已装载，无需继续处理
+            return
+
+        _execute_path = RunTool.get_global_var('EXECUTE_PATH')
+        if _execute_path is None:
+            _execute_path = os.getcwd()
+        _config = RunTool.get_global_var('PIPELINE_PROCESSER_PARA')[processer_name]
+
+        _pb_file = os.path.join(_execute_path, _config['frozen_graph'])
+        _pb_labelmap = os.path.join(_execute_path, _config['labelmap'])
+
+        # 识别基础参数
+        _graph['min_score'] = _config.get('min_score', 0.8)
+        _graph['labelmap'], _graph['other_id'] = Tools.load_labelmap(
+            _pb_labelmap, encoding=_config.get('encoding', 'utf-8')
+        )
+
+        _mask_graph = tf.Graph()
+        with _mask_graph.as_default():
+            _od_graph_def = tf.GraphDef()
+            with tf.gfile.GFile(_pb_file, 'rb') as _fid:
+                _serialized_graph = _fid.read()
+                _od_graph_def.ParseFromString(_serialized_graph)
+                tf.import_graph_def(_od_graph_def, name='')
+
+        _ops = _mask_graph.get_operations()
+        _all_tensor_names = {output.name for op in _ops for output in op.outputs}
+        _tensor_dict = {}
+        for key in ['num_detections', 'detection_boxes', 'detection_scores', 'detection_classes', 'detection_masks']:
+            _tensor_name = key + ':0'
+            if _tensor_name in _all_tensor_names:
+                _tensor_dict[key] = _mask_graph.get_tensor_by_name(_tensor_name)
+
+        _graph['session'] = tf.Session(graph=_mask_graph)
+        _graph['tensor_dict'] = _tensor_dict
+        _graph['image_tensor'] = _mask_graph.get_tensor_by_name('image_tensor:0')
+
+    @classmethod
+    def mask_processer_execute(cls, graph_var_name: str, processer_name: str, input_data,
+                               context: dict, pipeline_obj):
+        """
+        对象识别掩码处理器的公共执行函数
+
+        @param {str} graph_var_name - 对象识别冻结图全局变量名
+        @param {str} processer_name - 处理器名
+        @param {object} input_data - 处理器输入数据值
+            输入图片信息字典
+            {
+                'type': # {str} 识别到的对象分类, ''代表没有找到分类
+                'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
+                'image': # {PIL.Image.Image} 图片对象
+                'score': # {float} 匹配分数
+            }
+        @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
+        @param {Pipeline} pipeline_obj - 管道对象
+
+        @returns {object} - 处理结果输出数据值
+            返回图片分类及对应处理后的图片截图字典:
+                {
+                    'type': # {str} 识别到的对象分类, ''代表没有找到分类
+                    'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
+                    'image': # {PIL.Image.Image} 通过截图处理后的图片对象
+                    'score': # {float} 匹配分数
+                }
+        """
+        # _config = RunTool.get_global_var('PIPELINE_PROCESSER_PARA')[processer_name]
+        _graph = RunTool.get_global_var(graph_var_name)
+        _tensor_dict = copy.copy(_graph['tensor_dict'])
+
+        # 准备图片
+        _image = input_data['image']
+        _image_np_expanded = np.expand_dims(_image, axis=0)
+
+        # 掩码图片处理
+        _detection_boxes = tf.squeeze(_tensor_dict['detection_boxes'], [0])
+        _detection_masks = tf.squeeze(_tensor_dict['detection_masks'], [0])
+        # Reframe is required to translate mask from box coordinates to image coordinates and fit the image size.
+        _real_num_detection = tf.cast(_tensor_dict['num_detections'][0], tf.int32)
+        _detection_boxes = tf.slice(_detection_boxes, [0, 0], [_real_num_detection, -1])
+        _detection_masks = tf.slice(_detection_masks, [0, 0, 0], [_real_num_detection, -1, -1])
+        # detection_masks_reframed = utils_ops.reframe_box_masks_to_image_masks(
+        #     detection_masks, detection_boxes, image.shape[0], image.shape[1])
+        _detection_masks_reframed = cls.reframe_box_masks_to_image_masks(
+            _detection_masks, _detection_boxes, _image.size[1], _image.size[0])
+        _detection_masks_reframed = tf.cast(
+            tf.greater(_detection_masks_reframed, 0.5), tf.uint8)
+        # Follow the convention by adding back the batch dimension
+        _tensor_dict['detection_masks'] = tf.expand_dims(
+            _detection_masks_reframed, 0)
+
+        # 进行识别
+        _output_dict = _graph['session'].run(_tensor_dict,
+                                             feed_dict={_graph['image_tensor']: _image_np_expanded})
+
+        # all outputs are float32 numpy arrays, so convert types as appropriate
+        _output_dict['num_detections'] = int(_output_dict['num_detections'][0])
+        if _output_dict['num_detections'] <= 0 or float(_output_dict['detection_scores'][0][0]) < _graph['min_score']:
+            # 没有匹配到对象, 直接返回原图片的输入信息即可
+            return input_data
+
+        _output_dict['detection_classes'] = _output_dict[
+            'detection_classes'][0][0].astype(np.uint8)
+        _output_dict['detection_boxes'] = _output_dict['detection_boxes'][0][0]
+        _output_dict['detection_scores'] = float(_output_dict['detection_scores'][0][0])
+        _output_dict['detection_masks'] = _output_dict['detection_masks'][0][0]
+
+        # 进行图片处理，仅保留mask部分内容，其余部分为黑色
+        input_data['score'] = _output_dict['detection_scores']
+        _image_pix = _image.load()
+        for _x in range(_image.size[0]):
+            for _y in range(_image.size[1]):
+                if _output_dict['detection_masks'][_y][_x] == 0:
+                    _image_pix[_x, _y] = (0, 0, 0)
+
+        input_data['image'] = _image
+        return input_data
+
+    @classmethod
+    def get_image_center(cls, image, center_field: float = 1.0):
+        """
+        截取图片中间区域
+
+        @param {PIL.Image.Image} image - 要截取的图片
+        @param {float} center_field=1.0 - 要获取的图片中间区域比例
+
+        @returns {PIL.Image.Image} - 返回截取后的图片对象
+        """
+        _center_field = min(max(center_field, 0.0), 1.0)
+        _x_cut = round((image.size[0] * (1.0 - _center_field)) / 2.0)
+        _y_cut = round((image.size[1] * (1.0 - _center_field)) / 2.0)
+        return image.crop((_x_cut, _y_cut, image.size[0] - _x_cut, image.size[0] - _y_cut))
 
     @classmethod
     def rgb_to_hsv(cls, rgb: tuple):
@@ -420,7 +657,7 @@ class JadeTypeDetect(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
             }
         @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
@@ -431,7 +668,7 @@ class JadeTypeDetect(PipelineProcesser):
                 {
                     'type': # {str} 识别到的对象分类, ''代表没有找到分类
                     'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                    'image': # {bytes} 通过截图处理后的图片bytes对象
+                    'image': # {PIL.Image.Image} 通过截图处理后的图片对象
                     'score': # {float} 匹配分数
                 }
         """
@@ -450,6 +687,7 @@ class PendantTypeDetect(PipelineProcesser):
             <labelmap>../test_data/tf_models/pendant_type/labelmap.pbtxt</labelmap>
             <encoding>utf-8</encoding>
             <min_score type="float">0.8</min_score>
+            <cut_center_field type="float">0.7</cut_center_field>
         </PendantTypeDetect>
     """
     @classmethod
@@ -479,7 +717,7 @@ class PendantTypeDetect(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
             }
         @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
@@ -490,12 +728,71 @@ class PendantTypeDetect(PipelineProcesser):
                 {
                     'type': # {str} 识别到的对象分类, ''代表没有找到分类
                     'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                    'image': # {bytes} 通过截图处理后的图片bytes对象
+                    'image': # {PIL.Image.Image} 通过截图处理后的图片对象
                     'score': # {float} 匹配分数
                 }
         """
         return Tools.detect_processer_execute(
             PR_PENDANT_TYPE_DETECT_GRAPH, cls.processer_name(), input_data, context, pipeline_obj
+        )
+
+
+class BangleMaskDetect(PipelineProcesser):
+    """
+    识别手镯的掩码图片处理
+
+    @example 管道的processer_para配置如下
+        <BangleMaskDetect>
+            <frozen_graph>../test_data/tf_models/bangle_mask/frozen_inference_graph.pb</frozen_graph>
+            <labelmap>../test_data/tf_models/bangle_mask/labelmap.pbtxt</labelmap>
+            <encoding>utf-8</encoding>
+            <min_score type="float">0.8</min_score>
+        </BangleMaskDetect>
+    """
+    @classmethod
+    def initialize(cls):
+        """
+        初始化处理类
+        装载TF识别模型冻结图
+        """
+        Tools.mask_processer_initialize(PR_BANGLE_MASK_DETECT_GRAPH, cls.processer_name())
+
+    @classmethod
+    def processer_name(cls) -> str:
+        """
+        处理器名称，唯一标识处理器
+
+        @returns {str} - 当前处理器名称
+        """
+        return 'BangleMaskDetect'
+
+    @classmethod
+    def execute(cls, input_data, context: dict, pipeline_obj):
+        """
+        执行处理
+
+        @param {object} input_data - 处理器输入数据值
+            输入图片信息字典
+            {
+                'type': # {str} 识别到的对象分类, ''代表没有找到分类
+                'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
+                'image': # {PIL.Image.Image} 图片对象
+                'score': # {float} 匹配分数
+            }
+        @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
+        @param {Pipeline} pipeline_obj - 管道对象
+
+        @returns {object} - 处理结果输出数据值
+            返回图片分类及对应处理后的图片截图字典:
+                {
+                    'type': # {str} 识别到的对象分类, ''代表没有找到分类
+                    'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
+                    'image': # {PIL.Image.Image} 通过截图处理后的图片对象
+                    'score': # {float} 匹配分数
+                }
+        """
+        return Tools.mask_processer_execute(
+            PR_BANGLE_MASK_DETECT_GRAPH, cls.processer_name(), input_data, context, pipeline_obj
         )
 
 
@@ -526,7 +823,7 @@ class HistogramVetor(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
             }
         @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
@@ -536,7 +833,7 @@ class HistogramVetor(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
                 'vertor': # {numpy.ndarray} 特征向量
             }
@@ -545,7 +842,7 @@ class HistogramVetor(PipelineProcesser):
         _size = _config.get('image_size', 299)
 
         # 转换图片大小
-        _image = Image.open(BytesIO(input_data['image']))
+        _image = input_data['image']
         _image = _image.resize((_size, _size)).convert("RGB")
         _histogram = _image.histogram()
 
@@ -556,6 +853,7 @@ class HistogramVetor(PipelineProcesser):
 
         # 返回特征变量
         input_data['vertor'] = np.array(_normalize)
+        input_data['image'] = _image
         return input_data
 
 
@@ -587,7 +885,7 @@ class HSVClusterHistogramVetor(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
             }
         @param {dict} context - 传递上下文，该字典信息将在整个管道处理过程中一直向下传递，可以在处理器中改变该上下文信息
@@ -597,7 +895,7 @@ class HSVClusterHistogramVetor(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
                 'vertor': # {numpy.ndarray} 特征向量
             }
@@ -610,7 +908,7 @@ class HSVClusterHistogramVetor(PipelineProcesser):
         _remove_line = _config.get('remove_line', 0.01)
 
         # 转换图片大小
-        _image = Image.open(BytesIO(input_data['image']))
+        _image = input_data['image']
         _image = _image.resize((_size, _size)).convert("RGB")
 
         # 遍历图片每个像素修改颜色
@@ -666,13 +964,9 @@ class HSVClusterHistogramVetor(PipelineProcesser):
         _min = 0
         _normalize = [float(i) / (_max - _min) for i in _hsv_histogram]
 
-        # 获取图片的二进制编码
-        _img_bytesio = BytesIO()
-        _image.save(_img_bytesio, format='JPEG')
-
         # 返回特征变量
         input_data['vertor'] = np.array(_normalize)
-        input_data['image'] = _img_bytesio.getvalue()
+        input_data['image'] = _image
         return input_data
 
 
@@ -708,14 +1002,14 @@ class SearchImageInputAdpter(PipelineProcesser):
                 {
                     'type': # {str} 识别到的对象分类, ''代表没有找到分类
                     'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                    'image': # {bytes} 通过截图处理后的图片bytes对象
+                    'image': # {PIL.Image.Image} 通过截图处理后的图片对象
                     'score': # {float} 匹配分数
                 }
         """
         _output = {
             'type': input_data.get('collection', ''),  # 初始化的数据集
             'sub_type': '',
-            'image': input_data['image'],
+            'image': Image.open(BytesIO(input_data['image'])),
             'score': 0.0
         }
 
@@ -745,7 +1039,7 @@ class SearchImageOutputAdpter(PipelineProcesser):
             {
                 'type': # {str} 识别到的对象分类, ''代表没有找到分类
                 'sub_type': # {str} 识别到的对象子分类， ''代表没有子分类
-                'image': # {bytes} 图片bytes对象
+                'image': # {PIL.Image.Image} 图片对象
                 'score': # {float} 匹配分数
                 'vertor': # {numpy.ndarray} 特征向量
             }
@@ -769,6 +1063,11 @@ class SearchImageOutputAdpter(PipelineProcesser):
         else:
             # 只使用主分类进行分类处理
             input_data['collection'] = input_data['type']
+
+        # 转换图片对象
+        _img_bytesio = BytesIO()
+        input_data['image'].save(_img_bytesio, format='JPEG')
+        input_data['image'] = _img_bytesio.getvalue()
 
         return input_data
 

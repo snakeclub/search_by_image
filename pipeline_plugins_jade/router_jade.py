@@ -42,19 +42,23 @@ class JudgeToPendantTypeDetect(PipelineRouter):
         return 'JudgeToPendantTypeDetect'
 
     @classmethod
-    def get_next(cls, output, context: dict, pipeline_obj):
+    def get_next(cls, output, context: dict, pipeline_obj, **kwargs):
         """
         获取路由下一节点
 
         @param {object} output - 上一个节点的输出结果
         @param {dict} context - 上下文字典
         @param {Pipeline} pipeline_obj - 管道对象
+        @param {kwargs} - 传入的扩展参数
 
         @returns {str} - 下一节点的配置id，如果是最后的节点，返回None
         """
-        if output['type'] == '' or output['type'] == 'pendant':
+        if output['type'] == '' or output['type'] in ['pendant', 'ring', 'earrings', 'chain']:
             # 需要执行挂件类型判断
             _next_id = Tools.get_node_id_by_name('pendant_detect', pipeline_obj)
+        elif output['type'] == 'bangle':
+            # 手镯的处理，指向手镯掩码处理
+            _next_id = Tools.get_node_id_by_name('bangle_mask_detect', pipeline_obj)
         else:
             # 直接进入向量加工节点
             _next_id = Tools.get_node_id_by_name('generate_vertor', pipeline_obj)
