@@ -61,7 +61,7 @@ if __name__ == '__main__':
     # 获取配置文件信息
     _execute_path = os.path.realpath(FileTool.get_file_path(__file__))
     if _config is None:
-        _config = os.path.join(_execute_path, 'conf/server.xml')
+        _config = os.path.join(_execute_path, 'conf/server_jade.xml')
 
     _config_xml = SimpleXml(_config, encoding=_encoding)
     SERVER_CONFIG = _config_xml.to_dict()['server']

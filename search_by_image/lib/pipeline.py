@@ -571,7 +571,7 @@ class Pipeline(object):
             self._context.update(_node_config.get('context', {}))
 
             # 通知开始运行节点
-            self.log_info('[Pipeline:%s] Start running node [%s]' % (self.name, node_id))
+            self.log_debug('[Pipeline:%s] Start running node [%s]' % (self.name, node_id))
             if self.running_notify_fun is not None:
                 self.running_notify_fun(self.name, node_id, _node_config.get('name', ''))
 
@@ -624,8 +624,8 @@ class Pipeline(object):
         })
 
         # 通知运行结束节点
-        self.log_info('[Pipeline:%s]Running node [%s] end: status[%s] status_msg[%s]' %
-                      (self.name, node_id, status, status_msg))
+        self.log_debug('[Pipeline:%s]Running node [%s] end: status[%s] status_msg[%s]' %
+                       (self.name, node_id, status, status_msg))
         if self.end_running_notify_fun is not None:
             self.end_running_notify_fun(
                 self.name, node_id, _node_config.get('name', ''), status, status_msg

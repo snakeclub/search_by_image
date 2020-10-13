@@ -123,6 +123,8 @@ class SearchEngine(object):
         @param {dict} image_doc - 图片信息字典
         @param {str} pipeline - 处理管道标识
         @param {str} init_collection='' - 默认集合名，用于传入管道进行处理
+
+        @returns {str, str} - 返回 mongodb_id, collection
         """
         return self._image_to_search_db(
             image_data, image_doc, self._get_pipeline(pipeline),
@@ -331,6 +333,8 @@ class SearchEngine(object):
         @param {dict} image_doc - 图片信息字典
         @param {Pipeline} pipeline_obj - 可用管道对象
         @param {str} init_collection='' - 默认集合名，用于传入管道进行处理
+
+        @returns {str, str} - 返回 mongodb_id, collection
         """
         # 先获取图片所属数据集和向量
         _collection, _vertor = self._get_image_vertor(
@@ -344,7 +348,7 @@ class SearchEngine(object):
 
         # 将影像信息存入MongoDB
         image_doc['ids'] = _vids[0]
-        self.mongo_db.insert_document(self.database, _collection, image_doc)
+        return self.mongo_db.insert_document(self.database, _collection, image_doc), _collection
 
     def _create_collections(self):
         """

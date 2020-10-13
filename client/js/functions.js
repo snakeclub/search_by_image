@@ -206,7 +206,7 @@
             contentType: 'application/json',
             headers: headers,
             data: JSON.stringify(sendObj),
-            timeout: 10000,
+            timeout: 100000,
             async: true, // 异步处理
             success: function (result) {
                 // 对数据json解析
@@ -307,7 +307,7 @@
                 contentType: 'application/json',
                 headers: headers,
                 data: JSON.stringify(sendObj),
-                timeout: 10000,
+                timeout: 100000,
                 async: true, // 异步处理
                 success: function (result) {
                     // 对数据json解析
@@ -353,7 +353,7 @@
             contentType: 'application/json',
             headers: headers,
             data: JSON.stringify(sendObj),
-            timeout: 10000,
+            timeout: 100000,
             async: true, // 异步处理
             success: function (result) {
                 // 对数据json解析

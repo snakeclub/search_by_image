@@ -293,8 +293,10 @@ class Tools(object):
                 # 下一个
                 _index += 1
         elif input_data['type'] in ['earrings', 'chain']:
-            # 耳环及项链的情况，在二次挂件识别中组合识别到的挂件图片
+            # 耳环及项链的情况，在二次挂件识别中组合识别到的挂件图片，按比例处理
             _corp_images = []  # 识别到的挂件图片清单
+            _max_width = 0
+            _max_height = 0
             for _score in _np_scores:
                 if _score >= _graph['min_score']:
                     if _index == 0:
@@ -305,12 +307,20 @@ class Tools(object):
                     _xmin = int(_np_boxes[_index][1] * _image.size[0])
                     _ymax = int(_np_boxes[_index][2] * _image.size[1])
                     _xmax = int(_np_boxes[_index][3] * _image.size[0])
+                    _corp = cls.get_image_center(
+                        _image.crop((_xmin, _ymin, _xmax, _ymax)),
+                        center_field=_config.get('cut_center_field', 0.7)
+                    )
                     _corp_images.append(
                         cls.get_image_center(
                             _image.crop((_xmin, _ymin, _xmax, _ymax)),
                             center_field=_config.get('cut_center_field', 0.7)
-                        ).resize((100, 100))
+                        )
                     )
+                    if _corp.size[0] > _max_width:
+                        _max_width = _corp.size[0]
+                    if _corp.size[1] > _max_height:
+                        _max_height = _corp.size[1]
                 else:
                     break
 
@@ -321,10 +331,15 @@ class Tools(object):
             if _match_index == 0:
                 _obj_image = Image.new('RGB', (100 * len(_corp_images), 100), (0, 0, 0))  # 纯黑色图片
                 for _i in range(len(_corp_images)):
+                    # 根据比例改变图片大小
+                    _width = round(_corp_images[_i].size[0] / float(_max_width) * 100.0)
+                    _height = round(_corp_images[_i].size[1] / float(_max_height) * 100.0)
+                    _corp = _corp_images[_i].resize((_width, _height))
+
                     # 粘贴上去
                     _obj_image.paste(
-                        _corp_images[_i],
-                        (100 * _i, 0, 100 * (_i + 1), 100)
+                        _corp,
+                        (100 * _i, 0, 100 * _i + _width, _height)
                     )
         else:
             # 判断挂件类型
@@ -927,8 +942,9 @@ class HSVClusterHistogramVetor(PipelineProcesser):
                 # 修改图片
                 _pix[_x, _y] = Tools.hsv_to_rgb(_hsv)
 
-                if _hsv == (0.0, 0.0, 0.0) or _hsv == (0.0, 0.0, 100.0):
-                    # 删除黑色和白色的点，减少背景的干扰, 只看有颜色的部分
+                # if _hsv == (0.0, 0.0, 0.0) or _hsv == (0.0, 0.0, 100.0):
+                if _hsv == (0.0, 0.0, 0.0):
+                    # 删除黑色的点，减少背景的干扰, 只看有颜色的部分(保留白色，反光部分可能有影响)
                     continue
 
                 # 将像素值添加到直方图
